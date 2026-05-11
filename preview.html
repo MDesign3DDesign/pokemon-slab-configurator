@@ -118,7 +118,7 @@
 
     .result-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 12px;
       margin-bottom: 18px;
     }
@@ -164,6 +164,58 @@
       overflow: hidden;
     }
 
+
+    .case-label {
+      position: absolute;
+      color: rgba(255,255,255,0.88);
+      font-size: 0.78rem;
+      font-weight: 700;
+      background: rgba(15,23,42,0.82);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 5px 9px;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .case-frame {
+      position: absolute;
+      border: 5px solid rgba(255,255,255,0.9);
+      border-radius: 0px;
+      background: rgba(255,255,255,0.025);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .case-dimension-line {
+      position: absolute;
+      background: rgba(255,255,255,0.42);
+      z-index: 4;
+      pointer-events: none;
+    }
+
+    .module,
+
+    .module-info {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 0.62rem;
+      font-weight: 700;
+      color: rgba(255,255,255,0.92);
+      line-height: 1.2;
+      pointer-events: none;
+      padding: 4px;
+    }
+
+    .spacer {
+      z-index: 3;
+    }
+
     .module {
       position: absolute;
       background: rgba(56,189,248,0.33);
@@ -185,6 +237,22 @@
 
     .module div:last-child {
       border-bottom: 0;
+    }
+
+
+    .module-info {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 0.62rem;
+      font-weight: 700;
+      color: rgba(255,255,255,0.92);
+      line-height: 1.2;
+      pointer-events: none;
+      padding: 4px;
     }
 
     .spacer {
@@ -274,7 +342,7 @@
     <header>
       <h1>Pokémon Slab Riser Configurator</h1>
       <p class="subtitle">
-        Enter the inside measurements of your display case and copy the values into MakerWorld Parametric Model Maker.
+        Enter the inside case measurements and the configurator automatically finds the best riser and spacer setup.
       </p>
     </header>
 
@@ -290,9 +358,12 @@
         <div class="field">
           <label for="caseWidth">Inside case width/depth, mm</label>
           <input id="caseWidth" type="number" value="600" min="1" step="0.1">
+          <div class="small">All other settings are optimized automatically.</div>
         </div>
 
-        <div class="field">
+        
+<div id="advancedSettings" style="display:none;">
+<div class="field">
           <label for="lengthClearance">Total length clearance, mm</label>
           <input id="lengthClearance" type="number" value="2" min="0" step="0.1">
           <div class="small">Same logic as the example: about 1 mm clearance on each end.</div>
@@ -324,8 +395,10 @@
           <input id="gap" type="number" value="1.2" min="0" step="0.1">
         </div>
 
-        <div class="note">
-          The configurator uses max 3 panels per riser and calculates the remaining space as spacer area.
+        
+</div>
+<div class="note">
+          
         </div>
       </section>
 
@@ -334,19 +407,17 @@
 
         <div class="result-grid">
           <div class="stat">
-            <div class="label">MODEL_LENGTH</div>
+            <div class="label">Model Length</div>
             <div class="value" id="modelLength">—</div>
           </div>
+
           <div class="stat">
-            <div class="label">PANEL_COUNT</div>
-            <div class="value" id="panelCount">—</div>
+            <div class="label">SUMMARY</div>
+            <div class="value" id="shortSummary" style="font-size:1rem; line-height:1.35;">—</div>
           </div>
+
           <div class="stat">
-            <div class="label">Riser grid</div>
-            <div class="value" id="riserGrid">—</div>
-          </div>
-          <div class="stat">
-            <div class="label">EMPTY_SPACE</div>
+            <div class="label">Empty Space</div>
             <div class="value" id="emptySpace">—</div>
           </div>
         </div>
@@ -357,7 +428,7 @@
           <h2 style="margin-bottom:12px;">Layout preview</h2>
           <div class="case-box" id="caseBox"></div>
           <div class="small" style="margin-top:10px;">
-            Blue = riser modules. Yellow = spacer area.
+            White frame = inside case size. Blue = riser modules. Yellow = spacer area.
           </div>
         </div>
 
@@ -411,16 +482,89 @@
       const panelLength = Number(document.getElementById("panelLength").value);
       const gap = Number(document.getElementById("gap").value);
 
-      const panelCount = 3;
-      const moduleDepth = panelLength * panelCount + gap;
+      // Hidden internal clearance.
+      // The user should not see this, but the layout must leave 1-2 mm free space.
+      const safeWidthClearance = 1.5;
+      const usableCaseWidth = Math.max(0, caseWidth - safeWidthClearance);
+
+      // Build the best combination of rows using 1, 2 and 3 panel modules.
+      //
+      // Correct priority logic:
+      // 1. Fit as many total panels/slab rows as possible
+      // 2. Prefer more 3-panel rows
+      // 3. Then prefer more 2-panel rows
+      // 4. Use 1-panel rows when they increase total capacity, for example 3+3+3+1
+      // 5. Then minimize spacer/unused area
+      const rowOptions = [
+        { panelCount: 3, moduleDepth: panelLength * 3 + gap },
+        { panelCount: 2, moduleDepth: panelLength * 2 + gap },
+        { panelCount: 1, moduleDepth: panelLength * 1 + gap }
+      ];
+
+      const allCandidates = [];
+
+      function testCombos(combo, startIndex) {
+        const usedWidth = combo.reduce((sum, row) => sum + row.moduleDepth, 0);
+        const emptySpace = caseWidth - usedWidth;
+
+        if (usedWidth <= usableCaseWidth && combo.length > 0) {
+          const counts = { 1: 0, 2: 0, 3: 0 };
+          combo.forEach(row => counts[row.panelCount]++);
+
+          const totalPanels = combo.reduce((sum, row) => sum + row.panelCount, 0);
+
+          allCandidates.push({
+            rows: combo.length,
+            rowList: [...combo],
+            usedWidth,
+            emptySpace,
+            totalPanels,
+            counts
+          });
+        }
+
+        for (let i = startIndex; i < rowOptions.length; i++) {
+          const option = rowOptions[i];
+
+          if (usedWidth + option.moduleDepth <= usableCaseWidth) {
+            testCombos([...combo, option], i);
+          }
+        }
+      }
+
+      testCombos([], 0);
+
+      let best = null;
+
+      if (allCandidates.length > 0) {
+        best = allCandidates.sort((a, b) => {
+          // Most total panels first. This allows solutions like 3+3+3+1.
+          if (b.totalPanels !== a.totalPanels) return b.totalPanels - a.totalPanels;
+
+          // Prefer more 3-panel rows.
+          if (b.counts[3] !== a.counts[3]) return b.counts[3] - a.counts[3];
+
+          // Then prefer more 2-panel rows.
+          if (b.counts[2] !== a.counts[2]) return b.counts[2] - a.counts[2];
+
+          // Then use less leftover/spacer area.
+          if (a.emptySpace !== b.emptySpace) return a.emptySpace - b.emptySpace;
+
+          // Then fewer physical modules/rows.
+          return a.rows - b.rows;
+        })[0];
+      }
+
+      const panelCount = best ? best.rowList[0].panelCount : 1;
+      const rows = best ? best.rows : 0;
+      const usedWidth = best ? best.usedWidth : 0;
+      const emptySpace = best ? best.emptySpace : caseWidth;
+      const rowList = best ? best.rowList : [];
+      const moduleDepth = rowList.length ? Math.max(...rowList.map(r => r.moduleDepth)) : panelLength + gap;
 
       const columns = Math.ceil(caseLength / riserMaxLength);
       const modelLengthRaw = (caseLength - lengthClearance) / columns;
       const modelLength = Math.floor(modelLengthRaw);
-
-      const rows = Math.floor(caseWidth / moduleDepth);
-      const usedWidth = rows * moduleDepth;
-      const emptySpace = caseWidth - usedWidth;
 
       const spacerPartCount = Math.ceil(caseLength / spacerMaxLength);
       const spacerPartLength = Math.floor((caseLength - lengthClearance) / spacerPartCount);
@@ -429,22 +573,57 @@
       warning.style.display = "none";
       warning.textContent = "";
 
-      if (rows < 1) {
+      if (!best) {
         warning.style.display = "block";
-        warning.textContent = "Case width is too small for one 3-panel riser module. Try a smaller panel count or larger case width.";
+        warning.textContent = "Case width is too small for even one 1-panel riser module.";
       } else if (emptySpace <= 0) {
         warning.style.display = "block";
         warning.textContent = "No spacer area is left with these measurements.";
       }
 
       document.getElementById("modelLength").textContent = cleanNumber(modelLength, 0);
-      document.getElementById("panelCount").textContent = panelCount;
-      document.getElementById("riserGrid").textContent = columns + " × " + rows;
       document.getElementById("emptySpace").textContent = cleanNumber(emptySpace, 1);
 
-      document.getElementById("riserOutput").textContent =
-`MODEL_LENGTH = ${cleanNumber(modelLength, 0)}
-PANEL_COUNT  = ${panelCount}`;
+      const counts = { 1: 0, 2: 0, 3: 0 };
+      rowList.forEach(row => counts[row.panelCount]++);
+
+      const comboParts = [];
+      const dimensionParts = [];
+
+      for (let panels = 3; panels >= 1; panels--) {
+        if (counts[panels] > 0) {
+          const rowQty = counts[panels];
+          const moduleQty = columns * rowQty;
+          const rowDepth = panelLength * panels + gap;
+
+          comboParts.push(
+            `${moduleQty}× ${panels}-panel modules`
+          );
+
+          dimensionParts.push(
+            `${panels}-panel module: ${cleanNumber(modelLength, 0)} × ${cleanNumber(rowDepth, 1)} mm`
+          );
+        }
+      }
+
+      const comboText = comboParts.length ? comboParts.join(" + ") : "No fitting modules";
+      const dimensionText = dimensionParts.length ? dimensionParts.join(" | ") : "";
+
+      document.getElementById("shortSummary").innerHTML =
+        comboParts.join("<br>");
+
+      let riserText = `MODEL_LENGTH = ${cleanNumber(modelLength, 0)}\n`;
+      for (let panels = 3; panels >= 1; panels--) {
+        if (counts[panels] > 0) {
+          const rowQty = counts[panels];
+          const moduleQty = columns * rowQty;
+          const rowDepth = panelLength * panels + gap;
+
+          riserText += `\n${moduleQty} × modules:\nPANEL_COUNT  = ${panels}\nMODULE_SIZE  = ${cleanNumber(modelLength, 0)} × ${cleanNumber(rowDepth, 1)} mm\n`;
+        }
+      }
+
+      document.getElementById("riserOutput").textContent = riserText.trim();
 
       document.getElementById("spacerOutput").textContent =
 `CASE_LENGTH   = ${cleanNumber(caseLength, 0)}
@@ -463,7 +642,8 @@ PART_LENGTH   ≈ ${cleanNumber(spacerPartLength, 0)}`;
         rows,
         modelLength,
         moduleDepth,
-        emptySpace
+        emptySpace,
+        rowList
       });
     }
 
@@ -471,7 +651,7 @@ PART_LENGTH   ≈ ${cleanNumber(spacerPartLength, 0)}`;
       const box = document.getElementById("caseBox");
       box.innerHTML = "";
 
-      const pad = 12;
+      const pad = 34;
       const boxW = box.clientWidth - pad * 2;
       const boxH = box.clientHeight - pad * 2;
 
@@ -481,28 +661,94 @@ PART_LENGTH   ≈ ${cleanNumber(spacerPartLength, 0)}`;
       const startX = (box.clientWidth - layoutW) / 2;
       const startY = (box.clientHeight - layoutH) / 2;
 
-      for (let r = 0; r < data.rows; r++) {
+      // Visible case frame that scales with the entered measurements
+      const frame = document.createElement("div");
+      frame.className = "case-frame";
+      frame.style.left = startX + "px";
+      frame.style.top = startY + "px";
+      frame.style.width = layoutW + "px";
+      frame.style.height = layoutH + "px";
+      box.appendChild(frame);
+
+      // Dimension labels
+      const lengthLabel = document.createElement("div");
+      lengthLabel.className = "case-label";
+      lengthLabel.textContent = `${cleanNumber(data.caseLength, 0)} mm length`;
+      lengthLabel.style.left = (startX + layoutW / 2) + "px";
+      lengthLabel.style.top = Math.max(4, startY - 26) + "px";
+      lengthLabel.style.transform = "translateX(-50%)";
+      box.appendChild(lengthLabel);
+
+      const widthLabel = document.createElement("div");
+      widthLabel.className = "case-label";
+      widthLabel.textContent = `${cleanNumber(data.caseWidth, 0)} mm width`;
+      widthLabel.style.left = Math.max(4, startX - 28) + "px";
+      widthLabel.style.top = (startY + layoutH / 2) + "px";
+      widthLabel.style.transform = "translate(-50%, -50%) rotate(-90deg)";
+      box.appendChild(widthLabel);
+
+      // Dimension lines
+      const topLine = document.createElement("div");
+      topLine.className = "case-dimension-line";
+      topLine.style.left = startX + "px";
+      topLine.style.top = Math.max(30, startY - 10) + "px";
+      topLine.style.width = layoutW + "px";
+      topLine.style.height = "1px";
+      box.appendChild(topLine);
+
+      const sideLine = document.createElement("div");
+      sideLine.className = "case-dimension-line";
+      sideLine.style.left = Math.max(22, startX - 10) + "px";
+      sideLine.style.top = startY + "px";
+      sideLine.style.width = "1px";
+      sideLine.style.height = layoutH + "px";
+      box.appendChild(sideLine);
+
+      let currentY = startY;
+
+      for (let r = 0; r < data.rowList.length; r++) {
+        const row = data.rowList[r];
+
         for (let c = 0; c < data.columns; c++) {
           const mod = document.createElement("div");
           mod.className = "module";
           mod.style.left = (startX + c * data.modelLength * scale) + "px";
-          mod.style.top = (startY + r * data.moduleDepth * scale) + "px";
-          mod.style.width = (data.modelLength * scale - 2) + "px";
-          mod.style.height = (data.moduleDepth * scale - 2) + "px";
-          mod.innerHTML = "<div></div><div></div><div></div>";
+          mod.style.top = currentY + "px";
+          mod.style.width = Math.max(2, data.modelLength * scale - 2) + "px";
+          mod.style.height = Math.max(2, row.moduleDepth * scale - 2) + "px";
+          mod.style.gridTemplateRows = `repeat(${row.panelCount}, 1fr)`;
+          mod.innerHTML = "";
+
+          for (let i = 0; i < row.panelCount; i++) {
+            const panel = document.createElement("div");
+            panel.textContent = "";
+            mod.appendChild(panel);
+          }
+
+          const info = document.createElement("div");
+          info.className = "module-info";
+          info.innerHTML = `
+            ${cleanNumber(data.modelLength, 0)} × ${cleanNumber(row.moduleDepth, 1)} mm<br>
+            ${row.panelCount} panel${row.panelCount > 1 ? "s" : ""}
+          `;
+          mod.appendChild(info);
+
           box.appendChild(mod);
         }
+
+        currentY += row.moduleDepth * scale;
       }
 
       if (data.emptySpace > 0) {
         const spacer = document.createElement("div");
         spacer.className = "spacer";
-        spacer.style.left = startX + "px";
-        spacer.style.top = (startY + data.rows * data.moduleDepth * scale) + "px";
-        spacer.style.width = (data.caseLength * scale) + "px";
-        spacer.style.height = Math.max(12, data.emptySpace * scale) + "px";
+        // Keep spacer visually inside the case frame
+        spacer.style.left = (startX + 3) + "px";
+        spacer.style.top = currentY + "px";
+        spacer.style.width = Math.max(2, layoutW - 6) + "px";
+        spacer.style.height = Math.max(12, data.emptySpace * scale - 3) + "px";
         spacer.style.writingMode = "horizontal-tb";
-        spacer.textContent = "SPACER";
+        spacer.textContent = `SPACER ${cleanNumber(data.emptySpace, 1)} mm`;
         box.appendChild(spacer);
       }
     }
